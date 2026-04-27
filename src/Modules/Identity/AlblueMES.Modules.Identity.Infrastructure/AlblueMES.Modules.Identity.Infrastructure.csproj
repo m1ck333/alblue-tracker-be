@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageReference Include="EFCore.NamingConventions" Version="9.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.1">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+    <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.3.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AlblueMES.Modules.Identity.Domain\AlblueMES.Modules.Identity.Domain.csproj" />
+    <ProjectReference Include="..\AlblueMES.Modules.Identity.Application\AlblueMES.Modules.Identity.Application.csproj" />
+    <ProjectReference Include="..\..\Tenancy\AlblueMES.Modules.Tenancy.Infrastructure\AlblueMES.Modules.Tenancy.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\AlblueMES.BuildingBlocks.Common\AlblueMES.BuildingBlocks.Common.csproj" />
+  </ItemGroup>
+
+</Project>

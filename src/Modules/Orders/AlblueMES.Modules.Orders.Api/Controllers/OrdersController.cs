@@ -1,0 +1,308 @@
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using AlblueMES.Modules.Orders.Api.Requests;
+using AlblueMES.Modules.Orders.Application.Commands.ActivateOrder;
+using AlblueMES.Modules.Orders.Application.Commands.AddOrderItem;
+using AlblueMES.Modules.Orders.Application.Commands.AddSpecialRequest;
+using AlblueMES.Modules.Orders.Application.Commands.CancelOrder;
+using AlblueMES.Modules.Orders.Application.Commands.ChangePriority;
+using AlblueMES.Modules.Orders.Application.Commands.SetOrderInvoiced;
+using AlblueMES.Modules.Orders.Application.Commands.CreateOrder;
+using AlblueMES.Modules.Orders.Application.Commands.DeleteOrderAttachment;
+using AlblueMES.Modules.Orders.Application.Commands.OverrideComplexity;
+using AlblueMES.Modules.Orders.Application.Commands.PauseOrder;
+using AlblueMES.Modules.Orders.Application.Commands.RemoveOrderItem;
+using AlblueMES.Modules.Orders.Application.Commands.RemoveSpecialRequest;
+using AlblueMES.Modules.Orders.Application.Commands.ReopenOrder;
+using AlblueMES.Modules.Orders.Application.Commands.ResumeOrder;
+using AlblueMES.Modules.Orders.Application.Commands.UpdateOrder;
+using AlblueMES.Modules.Orders.Application.Commands.UploadOrderAttachment;
+using AlblueMES.Modules.Orders.Application.Commands.WithdrawOrderToProcess;
+using AlblueMES.Modules.Orders.Application.Interfaces;
+using AlblueMES.Modules.Orders.Application.Queries.GetOrderAttachments;
+using AlblueMES.Modules.Orders.Application.Queries.GetOrderById;
+using AlblueMES.Modules.Orders.Application.Queries.GetOrders;
+using AlblueMES.Modules.Orders.Application.Queries.GetOrdersMasterView;
+using AlblueMES.Modules.Orders.Domain.Repositories;
+using AlblueMES.Modules.Orders.Domain.Enums;
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+
+namespace AlblueMES.Modules.Orders.Api.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class OrdersController : ControllerBase
+{
+    private readonly IMediator _mediator;
+    private readonly IOrderAttachmentRepository _attachmentRepository;
+    private readonly IFileStorageService _fileStorageService;
+
+    public OrdersController(IMediator mediator, IOrderAttachmentRepository attachmentRepository, IFileStorageService fileStorageService)
+    {
+        _mediator = mediator;
+        _attachmentRepository = attachmentRepository;
+        _fileStorageService = fileStorageService;
+    }
+
+    [HttpGet]
+    public async Task<IActionResult> GetOrders(
+        [FromQuery] Guid tenantId,
+        [FromQuery] OrderStatus? status,
+        [FromQuery] OrderType? orderType,
+        [FromQuery] DateTime? dateFrom,
+        [FromQuery] DateTime? dateTo,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetOrdersQuery
+        {
+            TenantId = tenantId,
+            Status = status,
+            OrderType = orderType,
+            DateFrom = dateFrom,
+            DateTo = dateTo,
+            Page = page,
+            PageSize = pageSize,
+            Search = search
+        }, cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpGet("master-view")]
+    public async Task<IActionResult> GetOrdersMasterView(
+        [FromQuery] Guid tenantId,
+        [FromQuery] OrderStatus? status,
+        [FromQuery] OrderType? orderType,
+        [FromQuery] DateTime? dateFrom,
+        [FromQuery] DateTime? dateTo,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDirection = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetOrdersMasterViewQuery
+        {
+            TenantId = tenantId,
+            Status = status,
+            OrderType = orderType,
+            DateFrom = dateFrom,
+            DateTo = dateTo,
+            Page = page,
+            PageSize = pageSize,
+            Search = search,
+            SortBy = sortBy,
+            SortDirection = sortDirection,
+        }, cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetOrderById(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new GetOrderByIdQuery(id), cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpPost]
+    [Authorize(Roles = "Admin,Manager,SalesManager")]
+    [RequestSizeLimit(50 * 1024 * 1024)]
+    public async Task<IActionResult> CreateOrder([FromForm] CreateOrderRequest request, CancellationToken cancellationToken)
+    {
+        var userId = Guid.Parse(User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? throw new UnauthorizedAccessException("User ID claim not found in token."));
+
+        var result = await _mediator.Send(
+            new CreateOrderCommand(
+                request.TenantId, request.OrderNumber, request.DeliveryDate, request.Priority, request.OrderType, userId, request.Notes, request.CustomWarningDays, request.CustomCriticalDays,
+                request.Items?.Select(i => new Application.Commands.CreateOrder.CreateOrderItemInput(i.ProductCategoryId, i.ProductName, i.Quantity, i.Notes,
+                    i.Attachments?.Select(f => new Application.Commands.CreateOrder.CreateOrderAttachmentInput(f.FileName, f.ContentType, f.Length, f.OpenReadStream())).ToList())).ToList(),
+                request.Attachments?.Select(f => new Application.Commands.CreateOrder.CreateOrderAttachmentInput(f.FileName, f.ContentType, f.Length, f.OpenReadStream())).ToList()),
+            cancellationToken);
+        return CreatedAtAction(nameof(GetOrderById), new { id = result.Id }, result);
+    }
+
+    [HttpPut("{id:guid}")]
+    [Authorize(Roles = "Admin,Manager,SalesManager")]
+    public async Task<IActionResult> UpdateOrder(Guid id, [FromBody] UpdateOrderRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new UpdateOrderCommand(
+                id, request.OrderNumber, request.DeliveryDate, request.Notes, request.CustomWarningDays, request.CustomCriticalDays,
+                request.AddItems?.Select(i => new Application.Commands.UpdateOrder.UpdateOrderItemInput(i.ProductCategoryId, i.ProductName, i.Quantity, i.Notes)).ToList(),
+                request.RemoveItemIds,
+                request.ComplexityOverrides?.Select(c => new Application.Commands.UpdateOrder.UpdateOrderComplexityInput(c.ItemId, c.ProcessId, c.Complexity)).ToList(),
+                request.AddSpecialRequests?.Select(s => new Application.Commands.UpdateOrder.UpdateOrderSpecialRequestAdd(s.ItemId, s.SpecialRequestTypeId)).ToList(),
+                request.RemoveSpecialRequests?.Select(s => new Application.Commands.UpdateOrder.UpdateOrderSpecialRequestRemove(s.ItemId, s.SpecialRequestId)).ToList()),
+            cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpPost("{id:guid}/activate")]
+    [Authorize(Roles = "Admin,Manager,Coordinator")]
+    public async Task<IActionResult> ActivateOrder(Guid id, [FromBody] ActivateOrderRequest? request = null, CancellationToken cancellationToken = default)
+    {
+        await _mediator.Send(new ActivateOrderCommand(id, request?.ResetProcessIds), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/pause")]
+    [Authorize(Roles = "Admin,Manager,Coordinator")]
+    public async Task<IActionResult> PauseOrder(Guid id, CancellationToken cancellationToken)
+    {
+        await _mediator.Send(new PauseOrderCommand(id), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/resume")]
+    [Authorize(Roles = "Admin,Manager,Coordinator")]
+    public async Task<IActionResult> ResumeOrder(Guid id, CancellationToken cancellationToken)
+    {
+        await _mediator.Send(new ResumeOrderCommand(id), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/cancel")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<IActionResult> CancelOrder(Guid id, CancellationToken cancellationToken)
+    {
+        await _mediator.Send(new CancelOrderCommand(id), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/reopen")]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<IActionResult> ReopenOrder(Guid id, CancellationToken cancellationToken)
+    {
+        await _mediator.Send(new ReopenOrderCommand(id), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("{orderId:guid}/items")]
+    [Authorize(Roles = "Admin,Manager,SalesManager")]
+    public async Task<IActionResult> AddOrderItem(Guid orderId, [FromBody] AddOrderItemRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new AddOrderItemCommand(orderId, request.ProductCategoryId, request.ProductName, request.Quantity, request.Notes),
+            cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpDelete("{orderId:guid}/items/{itemId:guid}")]
+    [Authorize(Roles = "Admin,Manager,SalesManager")]
+    public async Task<IActionResult> RemoveOrderItem(Guid orderId, Guid itemId, CancellationToken cancellationToken)
+    {
+        await _mediator.Send(new RemoveOrderItemCommand(orderId, itemId), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPut("{id:guid}/priority")]
+    [Authorize(Roles = "Admin,Manager,Coordinator")]
+    public async Task<IActionResult> ChangePriority(Guid id, [FromBody] ChangePriorityRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new ChangePriorityCommand(id, request.Priority), cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpPut("{id:guid}/invoiced")]
+    [Authorize(Roles = "Admin,Manager,SalesManager,Coordinator")]
+    public async Task<IActionResult> SetInvoiced(Guid id, [FromBody] SetOrderInvoicedRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new SetOrderInvoicedCommand(id, request.IsInvoiced), cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpPost("{id:guid}/withdraw")]
+    [Authorize(Roles = "Admin,Manager,Coordinator")]
+    public async Task<IActionResult> WithdrawOrderToProcess(Guid id, [FromBody] WithdrawOrderToProcessRequest request, CancellationToken cancellationToken)
+    {
+        await _mediator.Send(new WithdrawOrderToProcessCommand(id, request.TargetProcessId, request.Reason, request.UserId), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPost("{orderId:guid}/items/{itemId:guid}/special-requests")]
+    [Authorize(Roles = "Admin,Manager,SalesManager")]
+    public async Task<IActionResult> AddSpecialRequest(Guid orderId, Guid itemId, [FromBody] AddSpecialRequestRequest request, CancellationToken cancellationToken)
+    {
+        await _mediator.Send(new AddSpecialRequestCommand(orderId, itemId, request.SpecialRequestTypeId), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpDelete("{orderId:guid}/items/{itemId:guid}/special-requests/{specialRequestId:guid}")]
+    [Authorize(Roles = "Admin,Manager,SalesManager")]
+    public async Task<IActionResult> RemoveSpecialRequest(Guid orderId, Guid itemId, Guid specialRequestId, CancellationToken cancellationToken)
+    {
+        await _mediator.Send(new RemoveSpecialRequestCommand(orderId, itemId, specialRequestId), cancellationToken);
+        return NoContent();
+    }
+
+    [HttpPut("{orderId:guid}/items/{itemId:guid}/processes/{processId:guid}/complexity")]
+    [Authorize(Roles = "Admin,Manager,SalesManager")]
+    public async Task<IActionResult> OverrideComplexity(Guid orderId, Guid itemId, Guid processId, [FromBody] OverrideComplexityRequest request, CancellationToken cancellationToken)
+    {
+        await _mediator.Send(new OverrideComplexityCommand(orderId, itemId, processId, request.Complexity), cancellationToken);
+        return NoContent();
+    }
+
+    // --- Attachments ---
+
+    [HttpPost("{orderId:guid}/attachments")]
+    [Authorize(Roles = "Admin,Manager,SalesManager")]
+    [RequestSizeLimit(10 * 1024 * 1024)]
+    public async Task<IActionResult> UploadAttachment(Guid orderId, IFormFile file, [FromQuery] Guid tenantId, [FromQuery] Guid? orderItemId, CancellationToken cancellationToken)
+    {
+        var userId = Guid.Parse(User.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+            ?? User.FindFirst(ClaimTypes.NameIdentifier)?.Value
+            ?? throw new UnauthorizedAccessException("User ID claim not found in token."));
+
+        var result = await _mediator.Send(new UploadOrderAttachmentCommand(
+            orderId, tenantId, userId,
+            file.FileName, file.ContentType, file.Length, file.OpenReadStream(),
+            orderItemId),
+            cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpGet("{orderId:guid}/attachments")]
+    public async Task<IActionResult> GetAttachments(Guid orderId, [FromQuery] Guid? orderItemId, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new GetOrderAttachmentsQuery(orderId, orderItemId), cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpGet("{orderId:guid}/attachments/{id:guid}/download")]
+    public async Task<IActionResult> DownloadAttachment(Guid orderId, Guid id, CancellationToken cancellationToken)
+    {
+        var attachment = await _attachmentRepository.GetByIdAsync(id, cancellationToken);
+        if (attachment == null || attachment.OrderId != orderId)
+            return NotFound();
+
+        var stream = await _fileStorageService.GetFileAsync(attachment.StoragePath, cancellationToken);
+        if (stream == null)
+            return NotFound();
+
+        // For PDFs, serve inline so browsers/apps can display them directly
+        if (attachment.ContentType == "application/pdf")
+        {
+            Response.Headers["Content-Disposition"] = $"inline; filename=\"{attachment.OriginalFileName}\"";
+            return File(stream, attachment.ContentType);
+        }
+        return File(stream, attachment.ContentType, attachment.OriginalFileName);
+    }
+
+    [HttpDelete("{orderId:guid}/attachments/{id:guid}")]
+    [Authorize(Roles = "Admin,Manager,SalesManager")]
+    public async Task<IActionResult> DeleteAttachment(Guid orderId, Guid id, [FromQuery] Guid tenantId, CancellationToken cancellationToken)
+    {
+        await _mediator.Send(new DeleteOrderAttachmentCommand(orderId, id, tenantId), cancellationToken);
+        return NoContent();
+    }
+}

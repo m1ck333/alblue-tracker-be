@@ -1,0 +1,36 @@
+using AlblueMES.Modules.Orders.Domain.Enums;
+using AlblueMES.Modules.Production.Domain.Enums;
+
+namespace AlblueMES.Modules.Orders.Application.DTOs.Tablet;
+
+public record TabletActiveWorkDto(
+    Guid OrderItemProcessId,
+    Guid OrderId,
+    Guid OrderItemId,
+    string OrderNumber,
+    int Priority,
+    DateTime DeliveryDate,
+    string ProductName,
+    string? ProductCategoryName,
+    int Quantity,
+    ComplexityType? Complexity,
+    ProcessStatus Status,
+    DateTime? StartedAt,
+    int TotalDurationMinutes,
+    bool IsTimerRunning,
+    DateTime? CurrentLogStartedAt,
+    List<string> SpecialRequestNames,
+    int CompletedProcessCount,
+    int TotalProcessCount,
+    List<TabletSubProcessDto> SubProcesses,
+    string? OrderNotes,
+    string? ItemNotes);
+
+public record TabletSubProcessDto(
+    Guid Id,
+    Guid SubProcessId,
+    SubProcessStatus Status,
+    int TotalDurationMinutes,
+    bool IsWithdrawn,
+    bool IsTimerRunning,
+    DateTime? CurrentLogStartedAt);

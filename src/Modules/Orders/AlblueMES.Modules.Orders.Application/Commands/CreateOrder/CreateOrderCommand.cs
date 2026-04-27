@@ -1,0 +1,21 @@
+using AlblueMES.Modules.Orders.Application.DTOs;
+using AlblueMES.Modules.Orders.Domain.Enums;
+using MediatR;
+
+namespace AlblueMES.Modules.Orders.Application.Commands.CreateOrder;
+
+public record CreateOrderItemInput(Guid ProductCategoryId, string ProductName, int Quantity, string? Notes, List<CreateOrderAttachmentInput>? Attachments = null);
+public record CreateOrderAttachmentInput(string FileName, string ContentType, long FileSizeBytes, Stream FileStream);
+
+public record CreateOrderCommand(
+    Guid TenantId,
+    string OrderNumber,
+    DateTime DeliveryDate,
+    int Priority,
+    OrderType OrderType,
+    Guid CreatedByUserId,
+    string? Notes,
+    int? CustomWarningDays = null,
+    int? CustomCriticalDays = null,
+    List<CreateOrderItemInput>? Items = null,
+    List<CreateOrderAttachmentInput>? Attachments = null) : IRequest<OrderDetailDto>;

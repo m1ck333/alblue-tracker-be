@@ -1,0 +1,32 @@
+using AlblueMES.BuildingBlocks.Common.Exceptions;
+using AlblueMES.Modules.Orders.Application.Interfaces;
+using AlblueMES.Modules.Orders.Domain.Repositories;
+using MediatR;
+
+namespace AlblueMES.Modules.Orders.Application.Commands.PauseOrder;
+
+public class PauseOrderCommandHandler : IRequestHandler<PauseOrderCommand, Unit>
+{
+    private readonly IOrderRepository _orderRepository;
+    private readonly IOrdersUnitOfWork _unitOfWork;
+    private readonly IProductionEventService _eventService;
+
+    public PauseOrderCommandHandler(IOrderRepository orderRepository, IOrdersUnitOfWork unitOfWork, IProductionEventService eventService)
+    {
+        _orderRepository = orderRepository;
+        _unitOfWork = unitOfWork;
+        _eventService = eventService;
+    }
+
+    public async Task<Unit> Handle(PauseOrderCommand request, CancellationToken cancellationToken)
+    {
+        var order = await _orderRepository.GetByIdAsync(request.Id, cancellationToken)
+            ?? throw new NotFoundException("Order", request.Id);
+
+        order.Pause();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+        await _eventService.NotifyOrderUpdatedAsync(order.TenantId, order.Id, cancellationToken);
+
+        return Unit.Value;
+    }
+}

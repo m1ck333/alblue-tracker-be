@@ -1,0 +1,32 @@
+using AlblueMES.BuildingBlocks.Common.Exceptions;
+using AlblueMES.Modules.Orders.Application.DTOs;
+using AlblueMES.Modules.Orders.Application.Interfaces;
+using AlblueMES.Modules.Orders.Domain.Repositories;
+using Mapster;
+using MediatR;
+
+namespace AlblueMES.Modules.Orders.Application.Commands.ApproveChangeRequest;
+
+public class ApproveChangeRequestCommandHandler : IRequestHandler<ApproveChangeRequestCommand, ChangeRequestDto>
+{
+    private readonly IChangeRequestRepository _changeRequestRepository;
+    private readonly IOrdersUnitOfWork _unitOfWork;
+
+    public ApproveChangeRequestCommandHandler(IChangeRequestRepository changeRequestRepository, IOrdersUnitOfWork unitOfWork)
+    {
+        _changeRequestRepository = changeRequestRepository;
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<ChangeRequestDto> Handle(ApproveChangeRequestCommand request, CancellationToken cancellationToken)
+    {
+        var changeRequest = await _changeRequestRepository.GetByIdAsync(request.Id, cancellationToken);
+        if (changeRequest == null)
+            throw new NotFoundException("ChangeRequest", request.Id);
+
+        changeRequest.Approve(request.HandledByUserId, request.ResponseNote);
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return changeRequest.Adapt<ChangeRequestDto>();
+    }
+}

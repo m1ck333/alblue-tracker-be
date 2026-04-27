@@ -1,0 +1,145 @@
+using System.Text;
+using System.Text.Json.Serialization;
+using AlblueMES.API.Middleware;
+using AlblueMES.API.Services;
+using AlblueMES.BuildingBlocks.Common.Interfaces;
+using AlblueMES.Modules.Identity.Api;
+using AlblueMES.Modules.Orders.Api;
+using AlblueMES.Modules.Orders.Api.Hubs;
+using AlblueMES.Modules.Identity.Infrastructure.Persistence;
+using AlblueMES.Modules.Orders.Application.Interfaces;
+using AlblueMES.Modules.Orders.Infrastructure.Persistence;
+using AlblueMES.Modules.Production.Api;
+using AlblueMES.Modules.Production.Infrastructure.Persistence;
+using AlblueMES.Modules.Tenancy.Api;
+using AlblueMES.Modules.Tenancy.Infrastructure.Persistence;
+using Microsoft.EntityFrameworkCore;
+using Mapster;
+using MapsterMapper;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+
+namespace AlblueMES.API;
+
+public class Program
+{
+    public static async Task Main(string[] args)
+    {
+        var builder = WebApplication.CreateBuilder(args);
+
+        // Add services to the container.
+        builder.Services.AddControllers()
+            .AddJsonOptions(options =>
+            {
+                options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
+            });
+        builder.Services.AddOpenApi();
+        builder.Services.AddHttpContextAccessor();
+
+        // JWT Authentication
+        var jwtSettings = builder.Configuration.GetSection("JwtSettings");
+        var secret = jwtSettings["Secret"]!;
+
+        builder.Services.AddAuthentication(options =>
+        {
+            options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+            options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+        })
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuer = true,
+                ValidateAudience = true,
+                ValidateLifetime = true,
+                ValidateIssuerSigningKey = true,
+                ValidIssuer = jwtSettings["Issuer"],
+                ValidAudience = jwtSettings["Audience"],
+                IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secret))
+            };
+
+            // Allow JWT token via query string for SignalR
+            options.Events = new Microsoft.AspNetCore.Authentication.JwtBearer.JwtBearerEvents
+            {
+                OnMessageReceived = context =>
+                {
+                    var accessToken = context.Request.Query["access_token"];
+                    var path = context.HttpContext.Request.Path;
+                    if (!string.IsNullOrEmpty(accessToken) &&
+                        (path.StartsWithSegments("/hubs") || path.Value?.Contains("/attachments/") == true))
+                    {
+                        context.Token = accessToken;
+                    }
+                    return Task.CompletedTask;
+                }
+            };
+        });
+
+        builder.Services.AddAuthorization();
+
+        // Tenant service
+        builder.Services.AddScoped<ITenantService, TenantService>();
+
+        // SignalR event service
+        builder.Services.AddScoped<IProductionEventService, ProductionEventService>();
+        builder.Services.AddScoped<IProcessChangeNotifier, ProcessChangeNotifier>();
+        builder.Services.AddScoped<AlblueMES.Modules.Production.Application.Interfaces.IReferenceCheckService, ReferenceCheckService>();
+
+        // Background services
+        builder.Services.AddHostedService<DeadlineWarningService>();
+
+        // Module registrations
+        builder.Services.AddTenancyModule(builder.Configuration);
+        builder.Services.AddIdentityModule(builder.Configuration);
+        builder.Services.AddProductionModule(builder.Configuration);
+        builder.Services.AddOrdersModule(builder.Configuration);
+
+        // Mapster
+        builder.Services.AddSingleton(TypeAdapterConfig.GlobalSettings);
+        builder.Services.AddScoped<IMapper, ServiceMapper>();
+
+        // CORS
+        builder.Services.AddCors(options =>
+        {
+            options.AddDefaultPolicy(policy =>
+            {
+                policy.SetIsOriginAllowed(_ => true)
+                    .AllowAnyMethod()
+                    .AllowAnyHeader()
+                    .AllowCredentials();
+            });
+        });
+
+        var app = builder.Build();
+
+        // Configure the HTTP request pipeline.
+        app.UseMiddleware<GlobalExceptionHandlerMiddleware>();
+
+        if (app.Environment.IsDevelopment())
+        {
+            app.MapOpenApi();
+        }
+
+        app.UseHttpsRedirection();
+        app.UseCors();
+        app.UseAuthentication();
+        app.UseAuthorization();
+        app.MapControllers();
+        app.MapHub<ProductionHub>("/hubs/production");
+
+        // Auto-migrate on startup
+        {
+            using var migrationScope = app.Services.CreateScope();
+            var sp = migrationScope.ServiceProvider;
+            await sp.GetRequiredService<TenancyDbContext>().Database.MigrateAsync();
+            await sp.GetRequiredService<IdentityDbContext>().Database.MigrateAsync();
+            await sp.GetRequiredService<ProductionDbContext>().Database.MigrateAsync();
+            await sp.GetRequiredService<OrdersDbContext>().Database.MigrateAsync();
+        }
+
+        // Seed demo data (testing phase — runs in all environments)
+        await DataSeeder.SeedAsync(app.Services);
+
+        app.Run();
+    }
+}

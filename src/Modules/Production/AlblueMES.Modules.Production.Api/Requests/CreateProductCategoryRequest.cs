@@ -1,0 +1,21 @@
+using AlblueMES.Modules.Production.Domain.Enums;
+
+namespace AlblueMES.Modules.Production.Api.Requests;
+
+public record CreateProductCategoryRequest(
+    Guid TenantId,
+    string Name,
+    string? Description,
+    int? DefaultWarningDays,
+    int? DefaultCriticalDays,
+    List<CategoryProcessInput>? Processes,
+    List<CategoryDependencyInput>? Dependencies);
+
+public record CategoryProcessInput(
+    Guid ProcessId,
+    int SequenceOrder,
+    ComplexityType? DefaultComplexity);
+
+public record CategoryDependencyInput(
+    Guid ProcessId,
+    Guid DependsOnProcessId);

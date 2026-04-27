@@ -1,0 +1,30 @@
+using AlblueMES.BuildingBlocks.Common.Exceptions;
+using AlblueMES.Modules.Orders.Application.Interfaces;
+using AlblueMES.Modules.Orders.Domain.Repositories;
+using MediatR;
+
+namespace AlblueMES.Modules.Orders.Application.Commands.MarkNotificationRead;
+
+public class MarkNotificationReadCommandHandler : IRequestHandler<MarkNotificationReadCommand, Unit>
+{
+    private readonly INotificationRepository _notificationRepository;
+    private readonly IOrdersUnitOfWork _unitOfWork;
+
+    public MarkNotificationReadCommandHandler(INotificationRepository notificationRepository, IOrdersUnitOfWork unitOfWork)
+    {
+        _notificationRepository = notificationRepository;
+        _unitOfWork = unitOfWork;
+    }
+
+    public async Task<Unit> Handle(MarkNotificationReadCommand request, CancellationToken cancellationToken)
+    {
+        var notification = await _notificationRepository.GetByIdAsync(request.Id, cancellationToken);
+        if (notification == null)
+            throw new NotFoundException("Notification", request.Id);
+
+        notification.MarkRead();
+        await _unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return Unit.Value;
+    }
+}

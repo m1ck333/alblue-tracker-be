@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="EFCore.NamingConventions" Version="9.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.1" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="9.0.1" />
+    <PackageReference Include="Npgsql.EntityFrameworkCore.PostgreSQL" Version="9.0.4" />
+    <PackageReference Include="Lib.Net.Http.WebPush" Version="3.3.1" />
+    <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="9.0.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\AlblueMES.Modules.Orders.Domain\AlblueMES.Modules.Orders.Domain.csproj" />
+    <ProjectReference Include="..\AlblueMES.Modules.Orders.Application\AlblueMES.Modules.Orders.Application.csproj" />
+    <ProjectReference Include="..\..\..\BuildingBlocks\AlblueMES.BuildingBlocks.Common\AlblueMES.BuildingBlocks.Common.csproj" />
+    <ProjectReference Include="..\..\Tenancy\AlblueMES.Modules.Tenancy.Infrastructure\AlblueMES.Modules.Tenancy.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Identity\AlblueMES.Modules.Identity.Infrastructure\AlblueMES.Modules.Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Production\AlblueMES.Modules.Production.Infrastructure\AlblueMES.Modules.Production.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>

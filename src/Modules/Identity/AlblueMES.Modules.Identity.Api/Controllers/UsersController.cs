@@ -1,0 +1,129 @@
+using AlblueMES.Modules.Identity.Api.Requests;
+using AlblueMES.Modules.Identity.Application.Commands.ChangePassword;
+using AlblueMES.Modules.Identity.Application.Commands.CreateUser;
+using AlblueMES.Modules.Identity.Application.Commands.DeleteUser;
+using AlblueMES.Modules.Identity.Application.Commands.ResetPassword;
+using AlblueMES.Modules.Identity.Application.Commands.UpdateUser;
+using AlblueMES.Modules.Identity.Application.Queries.GetUserById;
+using AlblueMES.Modules.Identity.Application.Queries.GetUsers;
+using AlblueMES.Modules.Identity.Domain.Entities;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using MediatR;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+
+namespace AlblueMES.Modules.Identity.Api.Controllers;
+
+[ApiController]
+[Route("api/[controller]")]
+[Authorize]
+public class UsersController : ControllerBase
+{
+    private readonly IMediator _mediator;
+
+    public UsersController(IMediator mediator)
+    {
+        _mediator = mediator;
+    }
+
+    [HttpGet]
+    [Authorize(Roles = "Admin,Manager")]
+    public async Task<IActionResult> GetUsers(
+        [FromQuery] Guid tenantId,
+        [FromQuery] UserRole? role,
+        [FromQuery] bool? isActive,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = 20,
+        [FromQuery] string? search = null,
+        [FromQuery] DateTime? createdFrom = null,
+        [FromQuery] DateTime? createdTo = null,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDirection = null,
+        CancellationToken cancellationToken = default)
+    {
+        var result = await _mediator.Send(new GetUsersQuery
+        {
+            TenantId = tenantId,
+            Role = role,
+            IsActive = isActive,
+            Page = page,
+            PageSize = pageSize,
+            Search = search,
+            CreatedFrom = createdFrom,
+            CreatedTo = createdTo,
+            SortBy = sortBy,
+            SortDirection = sortDirection
+        }, cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpGet("{id:guid}")]
+    public async Task<IActionResult> GetUserById(Guid id, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(new GetUserByIdQuery(id), cancellationToken);
+        return Ok(result);
+    }
+
+    [HttpPost]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> CreateUser([FromBody] CreateUserRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new CreateUserCommand(
+                request.TenantId,
+                request.Email,
+                request.Password,
+                request.FirstName,
+                request.LastName,
+                request.Role,
+                request.ProcessIds),
+            cancellationToken);
+
+        return CreatedAtAction(nameof(GetUserById), new { id = result.Id }, result);
+    }
+
+    [HttpPut("{id:guid}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> UpdateUser(Guid id, [FromBody] UpdateUserRequest request, CancellationToken cancellationToken)
+    {
+        var result = await _mediator.Send(
+            new UpdateUserCommand(id, request.TenantId, request.FirstName, request.LastName, request.Role, request.IsActive, request.CanIncludeWithdrawnInAnalysis, request.ProcessIds),
+            cancellationToken);
+
+        return Ok(result);
+    }
+
+    [HttpPost("{id:guid}/change-password")]
+    public async Task<IActionResult> ChangePassword(Guid id, [FromBody] ChangePasswordRequest request, CancellationToken cancellationToken)
+    {
+        await _mediator.Send(
+            new ChangePasswordCommand(id, request.CurrentPassword, request.NewPassword),
+            cancellationToken);
+
+        return NoContent();
+    }
+
+    [HttpPost("{id:guid}/reset-password")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> ResetPassword(Guid id, [FromBody] ResetPasswordRequest request, CancellationToken cancellationToken)
+    {
+        await _mediator.Send(
+            new ResetPasswordCommand(id, request.NewPassword),
+            cancellationToken);
+
+        return NoContent();
+    }
+
+    [HttpDelete("{id:guid}")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> DeleteUser(Guid id, CancellationToken cancellationToken)
+    {
+        var currentUserId = User.FindFirstValue(JwtRegisteredClaimNames.Sub);
+        if (currentUserId != null && Guid.Parse(currentUserId) == id)
+            return BadRequest(new { error = new { code = "CANNOT_DELETE_SELF", message = "You cannot delete your own account" } });
+
+        await _mediator.Send(new DeleteUserCommand(id), cancellationToken);
+        return NoContent();
+    }
+}

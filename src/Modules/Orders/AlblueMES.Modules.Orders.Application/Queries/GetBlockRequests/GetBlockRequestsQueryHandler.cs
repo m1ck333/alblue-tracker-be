@@ -1,0 +1,56 @@
+using AlblueMES.BuildingBlocks.Common.Pagination;
+using AlblueMES.Modules.Orders.Application.DTOs;
+using AlblueMES.Modules.Orders.Domain.Repositories;
+using AlblueMES.Modules.Production.Domain.Repositories;
+using Mapster;
+using MediatR;
+
+namespace AlblueMES.Modules.Orders.Application.Queries.GetBlockRequests;
+
+public class GetBlockRequestsQueryHandler : IRequestHandler<GetBlockRequestsQuery, PagedResult<BlockRequestDto>>
+{
+    private readonly IBlockRequestRepository _blockRequestRepository;
+    private readonly IProcessRepository _processRepository;
+
+    public GetBlockRequestsQueryHandler(IBlockRequestRepository blockRequestRepository, IProcessRepository processRepository)
+    {
+        _blockRequestRepository = blockRequestRepository;
+        _processRepository = processRepository;
+    }
+
+    public async Task<PagedResult<BlockRequestDto>> Handle(GetBlockRequestsQuery request, CancellationToken cancellationToken)
+    {
+        var result = await _blockRequestRepository.GetPagedAsync(
+            request.TenantId, request.Status, request.OrderId, request.Search,
+            request.GetCreatedFromUtc(), request.GetCreatedToUtc(),
+            request.SortBy, request.IsDescending,
+            request.GetPage(), request.GetPageSize(), cancellationToken);
+
+        // Batch-load process names
+        var processIds = result.Items
+            .Where(b => b.OrderItemProcess?.ProcessId != null)
+            .Select(b => b.OrderItemProcess!.ProcessId)
+            .Distinct()
+            .ToList();
+        var processNames = new Dictionary<Guid, string>();
+        foreach (var pid in processIds)
+        {
+            var proc = await _processRepository.GetByIdAsync(pid, cancellationToken);
+            if (proc != null) processNames[pid] = proc.Name;
+        }
+
+        return result.MapItems(b =>
+        {
+            var order = b.OrderItemProcess?.OrderItem?.Order;
+            var processId = b.OrderItemProcess?.ProcessId;
+            var dto = b.Adapt<BlockRequestDto>();
+            return dto with {
+                OrderId = order?.Id,
+                OrderNumber = order?.OrderNumber,
+                CurrentProcessStatus = b.OrderItemProcess?.Status,
+                ProcessId = processId,
+                ProcessName = processId.HasValue && processNames.TryGetValue(processId.Value, out var name) ? name : null,
+            };
+        });
+    }
+}

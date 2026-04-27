@@ -1,0 +1,7 @@
+namespace AlblueMES.Modules.Orders.Application.DTOs.Events;
+
+public record WorkerCheckedOutEvent(
+    Guid UserId,
+    Guid SessionId,
+    int? DurationMinutes,
+    Guid TenantId);
