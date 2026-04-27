@@ -124,3 +124,5 @@ Desktop.ini
 
 # Publish output
 publish/
+!CLAUDE.md
+!HANDOFF.md
